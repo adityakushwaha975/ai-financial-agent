@@ -2,7 +2,20 @@ import streamlit as st
 import plotly.graph_objects as go
 from data_fetcher import fetch_financial_data, fetch_chart_data
 from ai_analyst import generate_market_report
-from pdf_generator import create_pdf_report
+
+# Safe PDF Generator Import
+try:
+    import pdf_generator
+    if hasattr(pdf_generator, 'create_pdf_report'):
+        create_pdf_report = pdf_generator.create_pdf_report
+    elif hasattr(pdf_generator, 'generate_pdf_report'):
+        create_pdf_report = pdf_generator.generate_pdf_report
+    elif hasattr(pdf_generator, 'generate_pdf'):
+        create_pdf_report = pdf_generator.generate_pdf
+    else:
+        create_pdf_report = None
+except Exception:
+    create_pdf_report = None
 
 st.set_page_config(page_title="FinAgent AI", page_icon="⚡", layout="wide")
 
@@ -115,11 +128,15 @@ if run_analysis:
         report_text = generate_market_report(data)
         st.markdown(report_text)
         
-        pdf_bytes = create_pdf_report(data, report_text)
-        if pdf_bytes:
-            st.download_button(
-                label="📥 Download Institutional Research Note (PDF)",
-                data=pdf_bytes,
-                file_name=f"{ticker}_Research_Report.pdf",
-                mime="application/pdf"
-            )
+        if create_pdf_report:
+            try:
+                pdf_bytes = create_pdf_report(data, report_text)
+                if pdf_bytes:
+                    st.download_button(
+                        label="📥 Download Institutional Research Note (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"{ticker}_Research_Report.pdf",
+                        mime="application/pdf"
+                    )
+            except Exception as e:
+                st.warning("PDF generation temporarily unavailable.")
