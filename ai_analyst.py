@@ -1,74 +1,63 @@
 import os
-from dotenv import load_dotenv
 from groq import Groq
-from data_fetcher import fetch_financial_data
+from dotenv import load_dotenv
 
 load_dotenv()
 
-api_key = os.getenv("GROQ_API_KEY")
-if not api_key:
-    raise ValueError("GROQ_API_KEY .env file mein nahi mili!")
-
-client = Groq(api_key=api_key)
-
-def generate_market_report(ticker_symbol: str) -> str:
-    print(f"1. Live data fetch ho raha hai: {ticker_symbol}...")
-    data = fetch_financial_data(ticker_symbol)
-    
-    if "error" in data:
-        return f"Error: {data['error']}"
-
-    news_text = "\n".join([f"- {n['headline']} (Source: {n['publisher']})" for n in data.get('news', [])])
-    if not news_text:
-        news_text = "No recent headlines available."
-
-    prompt = f"""
-    You are an expert financial market research analyst.
-    Analyze the following market data and news:
-
-    Company: {data['company_name']} ({data['symbol']})
-    Current Price: {data['current_price']} {data['currency']} (1-Day Change: {data['1d_change_percent']}%)
-    P/E Ratio: {data['pe_ratio']}
-    
-    Recent News:
-    {news_text}
-
-    Generate a structured, professional Financial Research Report:
-    1. Key Metrics & Valuation Analysis
-    2. News & Sentiment Breakdown
-    3. Bull Case vs Bear Case (2 bullet points each)
-    4. Final Verdict (Bullish / Bearish / Neutral stance with reasoning)
-
-    Keep formatting clean with markdown bullet points.
-    """
-
-    print("2. Generating AI report...")
-    
-    # Pehle exact working model try karega, phir baki active text models
-    active_models = ["groq/compound"]
+def generate_market_report(data_input) -> str:
     try:
-        fetched = [m.id for m in client.models.list().data if not any(x in m.id for x in ['whisper', 'orpheus', 'tts', 'audio', 'canopylabs'])]
-        active_models.extend(fetched)
-    except Exception:
-        pass
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            return "⚠️ Groq API Key missing. Please set GROQ_API_KEY in Streamlit Secrets."
 
-    last_error = ""
-    for model_name in active_models:
-        try:
-            print(f"Using model: {model_name}...")
-            chat_completion = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=model_name,
-            )
-            return chat_completion.choices[0].message.content
-        except Exception as e:
-            last_error = str(e)
-            continue
-            
-    return f"Error: {last_error}"
+        client = Groq(api_key=api_key)
 
-if __name__ == "__main__":
-    report = generate_market_report("RELIANCE.NS")
-    print("\n" + "="*50)
-    print(report)
-    print("="*50)
+        # Handle both dict and string inputs safely
+        if isinstance(data_input, dict):
+            symbol = str(data_input.get("symbol", "ASSET")).strip()
+            name = str(data_input.get("company_name", symbol)).strip()
+            price = data_input.get("current_price", "N/A")
+            change = data_input.get("pct_change", "N/A")
+            pe = data_input.get("pe_ratio", "N/A")
+            news_items = data_input.get("news", [])
+            news_text = "\n".join([f"- {n}" for n in news_items]) if news_items else "No major news headlines."
+        else:
+            symbol = str(data_input).strip()
+            name = symbol
+            price = "N/A"
+            change = "N/A"
+            pe = "N/A"
+            news_text = "Market tracking data."
+
+        prompt = f"""
+You are a senior institutional equity research analyst. Analyze the following asset and write a structured investment memo:
+
+Company/Asset: {name} ({symbol})
+Current Price: ${price}
+24h Performance: {change}%
+Trailing P/E: {pe}
+
+Recent News Highlights:
+{news_text}
+
+Provide your synthesis strictly divided into these 4 sections:
+1. Executive Valuation & Multiples Overview
+2. Macro & Sentiment Dynamics
+3. Bull Case vs Bear Case
+4. Strategic Verdict & Conviction Score (1-10)
+"""
+
+        response = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a professional financial equity analyst delivering sharp institutional research notes."},
+                {"role": "user", "content": prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.3,
+            max_tokens=800
+        )
+
+        return response.choices[0].message.content
+
+    except Exception as e:
+        return f"Error: {str(e)}"
